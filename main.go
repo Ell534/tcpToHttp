@@ -5,40 +5,45 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
+	"net"
 	"strings"
 )
 
-const inputFile = "messages.txt"
+const port = ":42069"
 
 func main() {
-	file, err := os.Open(inputFile)
+	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		log.Fatalf("error opening file %s: %v\n", inputFile, err)
+		log.Fatalf("error listening for TCP traffic: %s\n", err.Error())
 	}
+	defer listener.Close()
 
-	fmt.Printf("reading data from input file: %s\n", inputFile)
-	fmt.Println("======================================")
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Fatalf("error: %s\n", err.Error())
+		}
+		fmt.Println("A connection has been accepted from", conn.RemoteAddr())
 
-	linesChan := getLinesChannel(file)
+		linesChan := getLinesChannel(conn)
 
-	for line := range linesChan {
-		fmt.Printf("read: %s\n", line)
+		for line := range linesChan {
+			fmt.Println(line)
+		}
 	}
-
 }
 
-func getLinesChannel(f io.ReadCloser) <-chan string {
+func getLinesChannel(connection io.ReadCloser) <-chan string {
 	result := make(chan string)
 
 	go func() {
-		defer f.Close()
+		defer connection.Close()
 		defer close(result)
 		var currentLine string
 
 		for {
 			bytes := make([]byte, 8)
-			n, err := f.Read(bytes)
+			n, err := connection.Read(bytes)
 
 			if err != nil {
 				if currentLine != "" {
