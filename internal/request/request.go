@@ -7,8 +7,34 @@ import (
 	"strings"
 )
 
+const (
+	Initialised = 1
+	Done        = 2
+	BufferSize  = 8
+)
+
 type Request struct {
 	RequestLine RequestLine
+	State       int
+}
+
+func (r *Request) parse(data []byte) (int, error) {
+	if r.State == Initialised {
+		requestLine, bytesCon, err := parseRequestLine(data)
+		if err != nil {
+			return 0, err
+		}
+		if bytesCon == 0 {
+			return 0, nil
+		}
+		r.RequestLine = *requestLine
+		r.State = Done
+		return bytesCon, nil
+	}
+	if r.State == Done {
+		return 0, fmt.Errorf("error: trying to read data in a done state")
+	}
+	return 0, fmt.Errorf("error: unknown state")
 }
 
 type RequestLine struct {
@@ -20,34 +46,54 @@ type RequestLine struct {
 const crlf = "\r\n"
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	request, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
+	buf := make([]byte, BufferSize, BufferSize)
+	readToIndex := 0
+
+	request := &Request{
+		State: Initialised,
 	}
 
-	requestLine, err := parseRequestLine(request)
-	if err != nil {
-		return nil, err
+	for request.State != Done {
+		if readToIndex >= len(buf) {
+			newBuf := make([]byte, len(buf)*2)
+			copy(newBuf, buf)
+			buf = newBuf
+		}
+		numBytesRead, err := reader.Read(buf[readToIndex:])
+		if err != nil {
+			if err == io.EOF {
+				request.State = Done
+				break
+			}
+			return nil, fmt.Errorf("error reading stream: %w", err)
+		}
+		readToIndex += numBytesRead
+		numBytesParsed, err := request.parse(buf[:readToIndex])
+		if err != nil {
+			return nil, fmt.Errorf("error parsing buffer: %w", err)
+		}
+		copy(buf, buf[numBytesParsed:])
+		readToIndex -= numBytesParsed
 	}
 
-	return &Request{
-		RequestLine: *requestLine,
-	}, nil
+	return request, nil
 }
 
-func parseRequestLine(data []byte) (*RequestLine, error) {
+func parseRequestLine(data []byte) (*RequestLine, int, error) {
 	index := bytes.Index(data, []byte(crlf))
 	if index == -1 {
-		return nil, fmt.Errorf("could not find a crlf in the request line")
+		return nil, 0, nil
 	}
+
+	bytesConsumed := len(data[:index]) + len(crlf)
 
 	requestLineInfo := string(data[:index])
 	requestLine, err := requestLineFromString(requestLineInfo)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return requestLine, nil
+	return requestLine, bytesConsumed, nil
 }
 
 func requestLineFromString(reqStr string) (*RequestLine, error) {
