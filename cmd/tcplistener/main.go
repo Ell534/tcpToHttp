@@ -1,12 +1,10 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io"
+	"github.com/Ell534/tcpToHttp/internal/request"
 	"log"
 	"net"
-	"strings"
 )
 
 func main() {
@@ -25,46 +23,10 @@ func main() {
 		}
 		fmt.Println("A connection has been accepted from", conn.RemoteAddr())
 
-		linesChannel := getLinesChannel(conn)
-
-		for line := range linesChannel {
-			fmt.Println("read:", line)
+		request, err := request.RequestFromReader(conn)
+		if err != nil {
+			log.Fatalf("error when calling RequestFromReader: %s\n", err.Error())
 		}
-		fmt.Println("Connection to ", conn.RemoteAddr(), "closed")
+		fmt.Printf("Request line:\n- Method: %s\n- Target: %s\n- Version: %s\n", request.RequestLine.Method, request.RequestLine.RequestTarget, request.RequestLine.HttpVersion)
 	}
-}
-
-func getLinesChannel(connection net.Conn) <-chan string {
-	lines := make(chan string)
-	go func() {
-		defer connection.Close()
-		defer close(lines)
-
-		var currentLine string
-		for {
-			bytes := make([]byte, 8, 8)
-			n, err := connection.Read(bytes)
-			if err != nil {
-				if currentLine != "" {
-					lines <- currentLine
-				}
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				fmt.Printf("error reading from file: %s\n", err.Error())
-				return
-			}
-
-			stringToPrint := string(bytes[:n])
-			parts := strings.Split(stringToPrint, "\n")
-
-			for i := 0; i < len(parts)-1; i++ {
-				lines <- fmt.Sprintf("%s%s", currentLine, parts[i])
-				currentLine = ""
-			}
-
-			currentLine += parts[len(parts)-1]
-		}
-	}()
-	return lines
 }
