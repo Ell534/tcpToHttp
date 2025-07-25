@@ -3,6 +3,9 @@ package headers
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"slices"
+	"strings"
 )
 
 type Headers map[string]string
@@ -30,7 +33,32 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	}
 	fieldName := string(bytes.TrimSpace(headerLine[:firstColonIndex]))
 	fieldValue := string(bytes.TrimSpace(headerLine[firstColonIndex+1:]))
-	h[fieldName] = fieldValue
+	if !validChar([]byte(fieldName)) {
+		return 0, false, fmt.Errorf("invalid header token found: %s", fieldName)
+	}
+	loweredFieldName := strings.ToLower(fieldName)
+	h[loweredFieldName] = fieldValue
 	bytesConsumed := index + len(crlf)
 	return bytesConsumed, false, nil
+}
+
+var tokenChars = []byte{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~'}
+
+func validChar(data []byte) bool {
+	for _, c := range data {
+		if !isChar(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func isChar(c byte) bool {
+	if c >= 'A' && c <= 'Z' ||
+		c >= 'a' && c <= 'z' ||
+		c >= '0' && c <= '9' {
+		return true
+	}
+
+	return slices.Contains(tokenChars, c)
 }
